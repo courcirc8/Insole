@@ -1,0 +1,35 @@
+# Example insole configuration
+# All measurements in mm, positions as fractions [0,1]
+
+# Base thickness
+min_thickness: 2.0
+max_thickness: 8.0
+base_thickness: 3.0
+
+# Arch support
+arch_enabled: true
+arch_height: 4.0
+arch_position: [0.25, 0.5]  # [longitudinal %, medial-lateral %]
+arch_width: 0.3   # fraction of foot width
+arch_length: 0.2  # fraction of foot length
+
+# Heel posting/wedge
+heel_enabled: false
+heel_varus_angle: 0.0  # degrees (positive = varus/inward tilt)
+heel_height: 2.0
+heel_transition: 0.4   # fraction of length for transition
+
+# Metatarsal pad
+met_pad_enabled: false
+met_pad_position: [0.7, 0.5]  # [longitudinal %, medial-lateral %]
+met_pad_height: 2.0
+met_pad_radius: 15.0
+
+# Edge control
+edge_lip_height: 1.0
+edge_chamfer: 2.0
+
+# Smoothing
+smooth_sigma: 2.0
+
+

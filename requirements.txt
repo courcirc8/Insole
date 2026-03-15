@@ -1,0 +1,19 @@
+# Core 3D processing
+open3d>=0.18.0
+trimesh>=4.4
+numpy>=1.24,<3
+scipy>=1.10
+shapely>=2.0
+alphashape>=1.3.1
+
+# Machine learning (clustering, outlier detection)
+scikit-learn>=1.3
+
+# Visualization & GUI
+matplotlib>=3.5
+plotly>=5.0
+dash>=2.14
+dash-bootstrap-components>=1.5
+
+# Configuration
+pyyaml>=6.0

@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outputs (generated data — too large for git)
+outputs/
+
+# Scan data (large binary files — use Git LFS or share separately)
+scans/
+*.ply
+*.stl
+*.obj
+*.mtl
+*.pcd
+
+# Exception: keep config example
+!config_example.yaml

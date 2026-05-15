@@ -12,45 +12,22 @@ import os
 import sys
 from typing import Tuple
 
+# Limit BLAS/OpenMP threads BEFORE importing sklearn/scipy/numpy-backed code
+# to avoid segfaults on macOS BLAS/OpenMP stacks.
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+	os.environ.setdefault(_var, "1")
+
 import numpy as np
 import open3d as o3d
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.cluster import DBSCAN
 
-
-POINT_CLOUD_EXTS = {
-	".ply", ".pcd", ".xyz", ".xyzn", ".xyzrgb", ".pts"
-}
-MESH_EXTS = {
-	".stl", ".obj", ".off", ".gltf", ".glb", ".fbx", ".dae"
-}
-
-
-def splitext_with_suffix(path: str, suffix: str) -> str:
-	"""Return path with suffix inserted before extension."""
-	root, ext = os.path.splitext(path)
-	return f"{root}{suffix}{ext}"
+from io_utils import load_geometry, splitext_with_suffix
 
 
 def load_scan(path: str):
-	"""Load scan as Open3D point cloud or mesh based on extension."""
-	ext = os.path.splitext(path)[1].lower()
-	if ext in POINT_CLOUD_EXTS:
-		pcd = o3d.io.read_point_cloud(path)
-		if pcd.is_empty():
-			raise ValueError(f"Loaded point cloud is empty: {path}")
-		return ("pcd", pcd)
-	elif ext in MESH_EXTS:
-		mesh = o3d.io.read_triangle_mesh(path)
-		if mesh.is_empty():
-			raise ValueError(f"Loaded mesh is empty: {path}")
-		return ("mesh", mesh)
-	else:
-		raise ValueError(
-			f"Unsupported file extension '{ext}'.\n"
-			f"Supported point clouds: {sorted(POINT_CLOUD_EXTS)}\n"
-			f"Supported meshes: {sorted(MESH_EXTS)}"
-		)
+	"""Load scan as ('pcd', PointCloud) or ('mesh', TriangleMesh)."""
+	return load_geometry(path)
 
 
 def segment_ground_from_pcd(
@@ -171,10 +148,6 @@ def plane_surface(points: np.ndarray, plane: np.ndarray, base_dist: float, grid_
 	else:
 		xy_train = xy
 		z_train = z
-	# Limit threads to reduce segfault risk on macOS BLAS/OpenMP stacks
-	os.environ.setdefault("OMP_NUM_THREADS", "1")
-	os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-	os.environ.setdefault("MKL_NUM_THREADS", "1")
 	knn = KNeighborsRegressor(n_neighbors=20, weights="distance", algorithm="kd_tree")
 	knn.fit(xy_train, z_train)
 	z_pred = knn.predict(xy)

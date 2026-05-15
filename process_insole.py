@@ -48,47 +48,51 @@ def main():
     
     scan_path = args.scan
     if not os.path.isfile(scan_path):
-        print(f"Scan file not found: {scan_path}")
+        print(f"Scan file not found: {scan_path}", file=sys.stderr)
         return 1
-    
+    if not os.path.isfile(args.config):
+        print(f"Config file not found: {args.config}", file=sys.stderr)
+        return 1
+
     scan_name = get_scan_name(scan_path)
     output_dir = ensure_output_dir(scan_name)
     print(f"Processing: {scan_path} → {output_dir}/")
-    
+
     # Define output paths
-    isolated_path = f"{output_dir}/{scan_name}_isolated.ply"
-    outline_path = f"{output_dir}/{scan_name}_outline.csv"
-    outline_preview = f"{output_dir}/{scan_name}_outline.png" if args.preview else None
-    heightmap_base = f"{output_dir}/{scan_name}"
-    thickness_preview = f"{output_dir}/{scan_name}_thickness.png" if args.preview else None
-    final_stl = f"{output_dir}/{scan_name}_insole.stl"
-    
+    output = Path(output_dir)
+    isolated_path = str(output / f"{scan_name}_isolated.ply")
+    outline_path = str(output / f"{scan_name}_outline.csv")
+    outline_preview = str(output / f"{scan_name}_outline.png") if args.preview else None
+    heightmap_base = str(output / scan_name)
+    thickness_preview = str(output / f"{scan_name}_thickness.png") if args.preview else None
+    final_stl = str(output / f"{scan_name}_insole.stl")
+
     # Step 1: Remove ground
-    cmd1 = ["python", "remove_ground.py", "-p", scan_path, "--method", args.method, "--dist", str(args.dist), "-o", isolated_path]
+    cmd1 = [sys.executable, "remove_ground.py", "-p", scan_path, "--method", args.method, "--dist", str(args.dist), "-o", isolated_path]
     run_cmd(cmd1, "Ground Removal")
-    
+
     # Step 2: Extract outline
-    cmd2 = ["python", "extract_outline.py", "-p", isolated_path, "-o", outline_path]
+    cmd2 = [sys.executable, "extract_outline.py", "-p", isolated_path, "-o", outline_path]
     if outline_preview:
         cmd2.extend(["--preview", outline_preview])
     run_cmd(cmd2, "Outline Extraction")
-    
+
     # Step 3: Generate heightmap
-    cmd3 = ["python", "generate_heightmap.py", "--pcd", isolated_path, "--outline", outline_path, "--res", str(args.res), "--outbase", heightmap_base]
+    cmd3 = [sys.executable, "generate_heightmap.py", "--pcd", isolated_path, "--outline", outline_path, "--res", str(args.res), "--outbase", heightmap_base]
     run_cmd(cmd3, "Heightmap Generation")
-    
+
     # Step 4: Create parametric STL
-    cmd4 = ["python", "parametric_insole.py", "--heightmap", heightmap_base, "--outline", outline_path, "--config", args.config, "--output", final_stl]
+    cmd4 = [sys.executable, "parametric_insole.py", "--heightmap", heightmap_base, "--outline", outline_path, "--config", args.config, "--output", final_stl]
     if thickness_preview:
         cmd4.extend(["--preview", thickness_preview])
     run_cmd(cmd4, "Parametric STL Generation")
-    
+
     print(f"\n✅ COMPLETE! Final STL: {final_stl}")
-    
+
     # Optional: render final result
     if args.preview:
-        render_path = f"{output_dir}/{scan_name}_render.png"
-        cmd5 = ["python", "render_stl.py", "--stl", final_stl, "--output", render_path]
+        render_path = str(output / f"{scan_name}_render.png")
+        cmd5 = [sys.executable, "render_stl.py", "--stl", final_stl, "--output", render_path]
         run_cmd(cmd5, "STL Rendering")
         print(f"📸 Render saved: {render_path}")
     

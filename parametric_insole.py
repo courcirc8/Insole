@@ -6,6 +6,7 @@ Features: base thickness, arch support, heel posting, met pads, edge control.
 Outputs: modified heightmap and watertight STL mesh.
 """
 import argparse
+import dataclasses
 import os
 import sys
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from typing import Optional
 import numpy as np
 import yaml
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import Delaunay
 from scipy.spatial.distance import cdist
 import trimesh
 from shapely.geometry import Polygon, Point
@@ -211,7 +213,6 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
     top_vertices = np.column_stack([GX[valid_indices], GY[valid_indices], Z[valid_indices]])
     
     # Triangulate top surface using 2D Delaunay
-    from scipy.spatial import Delaunay
     xy_points = top_vertices[:, :2]
     tri = Delaunay(xy_points)
     
@@ -236,7 +237,6 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
     outline_coords = np.array(outline.exterior.coords[:-1])  # Remove duplicate last point
     
     # Find closest vertices to outline points
-    from scipy.spatial.distance import cdist
     dists = cdist(outline_coords, xy_points)
     boundary_indices = np.argmin(dists, axis=1)
     
@@ -288,7 +288,15 @@ def main() -> int:
     # Load parameters
     if args.config:
         with open(args.config, 'r') as f:
-            config_dict = yaml.safe_load(f)
+            config_dict = yaml.safe_load(f) or {}
+        if not isinstance(config_dict, dict):
+            print(f"Invalid YAML config (expected a mapping at root): {args.config}", file=sys.stderr)
+            return 1
+        valid_keys = {f.name for f in dataclasses.fields(InsoleParams)}
+        unknown = set(config_dict) - valid_keys
+        if unknown:
+            print(f"Unknown config keys: {sorted(unknown)}. Valid keys: {sorted(valid_keys)}", file=sys.stderr)
+            return 1
         params = InsoleParams(**config_dict)
     else:
         params = InsoleParams()
@@ -337,14 +345,6 @@ def main() -> int:
         print(f"Saved: {args.heightmap}_parametric_Z.npy")
     
     return 0
-
-
-def load_heightmap(base_path: str) -> tuple:
-    """Load GX, GY, Z arrays from NPY files."""
-    GX = np.load(base_path + "_GX.npy")
-    GY = np.load(base_path + "_GY.npy")
-    Z = np.load(base_path + "_Z.npy")
-    return GX, GY, Z
 
 
 if __name__ == "__main__":

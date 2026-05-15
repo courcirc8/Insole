@@ -11,13 +11,7 @@ from sklearn.neighbors import NearestNeighbors
 from scipy.spatial.transform import Rotation as R
 from scipy.interpolate import griddata
 
-
-POINT_CLOUD_EXTS = {
-	".ply", ".pcd", ".xyz", ".xyzn", ".xyzrgb", ".pts"
-}
-MESH_EXTS = {
-	".stl", ".obj", ".off", ".gltf", ".glb", ".fbx", ".dae"
-}
+from io_utils import load_geometry
 
 
 @dataclass
@@ -29,22 +23,15 @@ class Metrics:
 	avg_surface_residual: float
 
 
-def ensure_pcd(path: str):
-	ext = os.path.splitext(path)[1].lower()
-	if ext in POINT_CLOUD_EXTS:
-		pcd = o3d.io.read_point_cloud(path)
-		if pcd.is_empty():
-			raise ValueError(f"Empty point cloud: {path}")
-		return pcd
-	elif ext in MESH_EXTS:
-		mesh = o3d.io.read_triangle_mesh(path)
-		if mesh.is_empty():
-			raise ValueError(f"Empty mesh: {path}")
-		# Sample sufficient points
-		pcd = mesh.sample_points_poisson_disk(number_of_points=max(400000, len(mesh.vertices)))
-		return pcd
-	else:
-		raise ValueError(f"Unsupported extension: {ext}")
+def ensure_pcd(path: str) -> o3d.geometry.PointCloud:
+	"""Load a scan and return it as a point cloud, sampling from mesh if needed."""
+	kind, geometry = load_geometry(path)
+	if kind == "pcd":
+		return geometry
+	# Sample sufficient points from mesh
+	return geometry.sample_points_poisson_disk(
+		number_of_points=max(400000, len(geometry.vertices))
+	)
 
 
 def segment_plane(pcd: o3d.geometry.PointCloud, dist=0.5, ransac_n=3, iters=5000) -> Tuple[np.ndarray, np.ndarray]:
@@ -149,7 +136,8 @@ def plane_surface(points: np.ndarray, plane: np.ndarray, base_dist: float, grid_
 	iy = np.clip(((xy_all[:, 1] - ymin) / (ymax - ymin + 1e-9) * (ny - 1)).astype(int), 0, ny - 1)
 	z_pred = GZ[iy, ix]
 	res = np.abs(z_all - z_pred)
-	mask = res <= residual_thresh
+	# Drop points whose grid prediction is NaN (treat as rejected rather than NaN-comparing).
+	mask = np.isfinite(res) & (res <= residual_thresh)
 	return pts[mask]
 
 

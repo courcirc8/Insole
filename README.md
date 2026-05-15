@@ -9,6 +9,7 @@ Open-source Python pipeline to convert 3D-scanned therapeutic insoles into param
 | 👁️ View | `view_scan.py` | Display point clouds & meshes (PLY/OBJ/STL) with GUI picker |
 | ✂️ Isolate | `remove_ground.py` | Remove ground plane (RANSAC + DBSCAN) |
 | 🔍 Compare | `isolate_insole.py` | Evaluate multiple isolation methods side-by-side |
+| 🧹 Clean | `clean_artifacts.py` | Statistical / radius / conservative outlier removal |
 | 📐 Outline | `extract_outline.py` | 2D alpha-shape contour of insole footprint |
 | 🗺️ Heightmap | `generate_heightmap.py` | kNN-interpolated Z grid within outline |
 | ⚙️ Parametric | `parametric_insole.py` | Arch support, heel posting, met pads → STL |

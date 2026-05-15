@@ -10,6 +10,8 @@ import sys
 
 import open3d as o3d
 
+from io_utils import POINT_CLOUD_EXTS, MESH_EXTS, load_geometry
+
 try:
 	import tkinter as tk
 	from tkinter import filedialog
@@ -18,36 +20,10 @@ except Exception:
 	_HAS_TK = False
 
 
-POINT_CLOUD_EXTS = {
-	".ply", ".pcd", ".xyz", ".xyzn", ".xyzrgb", ".pts"
-}
-MESH_EXTS = {
-	".stl", ".obj", ".off", ".gltf", ".glb", ".fbx", ".dae"
-}
-
-
 def load_scan(path: str):
 	"""Load a scan file as an Open3D geometry (point cloud or mesh)."""
-	ext = os.path.splitext(path)[1].lower()
-	if ext in POINT_CLOUD_EXTS:
-		pcd = o3d.io.read_point_cloud(path)
-		if pcd.is_empty():
-			raise ValueError(f"Loaded point cloud is empty: {path}")
-		return pcd
-	elif ext in MESH_EXTS:
-		mesh = o3d.io.read_triangle_mesh(path)
-		if mesh.is_empty():
-			raise ValueError(f"Loaded mesh is empty: {path}")
-		# Ensure normals for better shading when visualizing
-		if not mesh.has_vertex_normals():
-			mesh.compute_vertex_normals()
-		return mesh
-	else:
-		raise ValueError(
-			f"Unsupported file extension '{ext}'.\n"
-			f"Supported point clouds: {sorted(POINT_CLOUD_EXTS)}\n"
-			f"Supported meshes: {sorted(MESH_EXTS)}"
-		)
+	_, geometry = load_geometry(path, compute_mesh_normals=True)
+	return geometry
 
 
 def pick_file_interactive() -> str:
@@ -56,10 +32,12 @@ def pick_file_interactive() -> str:
 		return ""
 	root = tk.Tk()
 	root.withdraw()
+	pc_globs = " ".join(f"*{ext}" for ext in sorted(POINT_CLOUD_EXTS))
+	mesh_globs = " ".join(f"*{ext}" for ext in sorted(MESH_EXTS))
 	filetypes = [
-		("3D files", "*.ply *.pcd *.xyz *.xyzn *.xyzrgb *.pts *.stl *.obj *.off *.gltf *.glb *.fbx *.dae"),
-		("Point clouds", "*.ply *.pcd *.xyz *.xyzn *.xyzrgb *.pts"),
-		("Meshes", "*.stl *.obj *.off *.gltf *.glb *.fbx *.dae"),
+		("3D files", f"{pc_globs} {mesh_globs}"),
+		("Point clouds", pc_globs),
+		("Meshes", mesh_globs),
 		("All files", "*.*"),
 	]
 	while True:

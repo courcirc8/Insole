@@ -60,7 +60,10 @@ def main():
     
     scan_path = args.scan
     if not os.path.isfile(scan_path):
-        print(f"Scan file not found: {scan_path}")
+        print(f"Scan file not found: {scan_path}", file=sys.stderr)
+        return 1
+    if not os.path.isfile(args.config):
+        print(f"Config file not found: {args.config}", file=sys.stderr)
         return 1
     
     scan_name = get_scan_name(scan_path)
@@ -78,60 +81,44 @@ def main():
     final_stl = f"{output_dir}/{scan_name}_insole.stl"
     
     # Step 1: Remove ground
-    cmd1 = ["python", "remove_ground.py", "-p", scan_path, "--method", args.method, "--dist", str(args.dist), "-o", isolated_path]
+    cmd1 = [sys.executable, "remove_ground.py", "-p", scan_path, "--method", args.method, "--dist", str(args.dist), "-o", isolated_path]
     run_cmd(cmd1, "1. Ground Removal")
     
     # Step 2: Clean artifacts (NEW STEP - before grid)
-    if args.clean_method == "statistical":
-        cmd2 = ["python", "-c", f"""
-import open3d as o3d
-import numpy as np
-pcd = o3d.io.read_point_cloud('{isolated_path}')
-print(f'Before cleaning: {{len(pcd.points):,}} points')
-cleaned_pcd, inliers = pcd.remove_statistical_outlier(nb_neighbors={args.nb_neighbors}, std_ratio={args.std_ratio})
-print(f'After statistical cleaning: {{len(inliers):,}} points ({{len(inliers)/len(pcd.points)*100:.1f}}%)')
-pts = np.asarray(cleaned_pcd.points)
-print(f'Z range: [{{pts[:,2].min():.1f}}, {{pts[:,2].max():.1f}}]')
-o3d.io.write_point_cloud('{cleaned_path}', cleaned_pcd)
-print(f'Saved: {cleaned_path}')
-"""]
-    elif args.clean_method == "conservative":
-        cmd2 = ["python", "clean_conservative.py", "-p", isolated_path, "--std_multiplier", str(args.std_ratio), "-o", cleaned_path]
-    else:  # radius
-        cmd2 = ["python", "-c", f"""
-import open3d as o3d
-import numpy as np
-pcd = o3d.io.read_point_cloud('{isolated_path}')
-cleaned_pcd, inliers = pcd.remove_radius_outlier(nb_points=16, radius=3.0)
-print(f'Radius cleaning: {{len(inliers):,}} / {{len(pcd.points):,}} points')
-o3d.io.write_point_cloud('{cleaned_path}', cleaned_pcd)
-"""]
-    
+    cmd2 = [
+        sys.executable, "clean_artifacts.py",
+        "-p", isolated_path,
+        "-o", cleaned_path,
+        "--method", args.clean_method,
+        "--nb_neighbors", str(args.nb_neighbors),
+        "--std_ratio", str(args.std_ratio),
+        "--std_multiplier", str(args.std_ratio),
+    ]
     run_cmd(cmd2, "2. Artifact Cleaning (PRE-GRID)")
     
     # Step 3: Extract outline from CLEAN points
-    cmd3 = ["python", "extract_outline.py", "-p", cleaned_path, "-o", outline_path]
+    cmd3 = [sys.executable, "extract_outline.py", "-p", cleaned_path, "-o", outline_path]
     if outline_preview:
         cmd3.extend(["--preview", outline_preview])
     run_cmd(cmd3, "3. Outline Extraction (from clean data)")
-    
+
     # Step 4: Generate heightmap from CLEAN points
-    cmd4 = ["python", "generate_heightmap.py", "--pcd", cleaned_path, "--outline", outline_path, "--res", str(args.res), "--knn", str(args.knn), "--outbase", heightmap_base]
+    cmd4 = [sys.executable, "generate_heightmap.py", "--pcd", cleaned_path, "--outline", outline_path, "--res", str(args.res), "--knn", str(args.knn), "--outbase", heightmap_base]
     run_cmd(cmd4, "4. Heightmap Generation (clean grid)")
-    
+
     # Step 5: Create parametric STL
-    cmd5 = ["python", "parametric_insole.py", "--heightmap", heightmap_base, "--outline", outline_path, "--config", args.config, "--output", final_stl]
+    cmd5 = [sys.executable, "parametric_insole.py", "--heightmap", heightmap_base, "--outline", outline_path, "--config", args.config, "--output", final_stl]
     if thickness_preview:
         cmd5.extend(["--preview", thickness_preview])
     run_cmd(cmd5, "5. Parametric STL Generation")
-    
+
     print(f"\n✅ CLEAN PIPELINE COMPLETE!")
     print(f"📁 Final STL: {final_stl}")
-    
+
     # Optional: render final result
     if args.preview:
         render_path = f"{output_dir}/{scan_name}_render.png"
-        cmd6 = ["python", "render_stl.py", "--stl", final_stl, "--output", render_path]
+        cmd6 = [sys.executable, "render_stl.py", "--stl", final_stl, "--output", render_path]
         run_cmd(cmd6, "6. STL Rendering")
         print(f"📸 Render: {render_path}")
     

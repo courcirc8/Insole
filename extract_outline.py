@@ -14,6 +14,8 @@ import shapely.geometry as geom
 from scipy.spatial import ConvexHull
 from sklearn.neighbors import NearestNeighbors
 
+from io_utils import load_point_cloud as load_pcd
+
 try:
 	import matplotlib.pyplot as plt
 	_HAS_MPL = True
@@ -21,45 +23,42 @@ except Exception:
 	_HAS_MPL = False
 
 
-def load_pcd(path: str) -> o3d.geometry.PointCloud:
-	pcd = o3d.io.read_point_cloud(path)
-	if pcd.is_empty():
-		raise ValueError(f"Empty point cloud: {path}")
-	return pcd
-
-
 def project_to_xy(points: np.ndarray) -> np.ndarray:
 	return points[:, :2]
 
 
-def compute_fast_outline(points_xy: np.ndarray, concave_factor: float = 0.15) -> geom.Polygon:
+def compute_fast_outline(points_xy: np.ndarray, concave_factor: float = 0.15, rng: np.random.Generator | None = None) -> geom.Polygon:
 	"""
 	Fast outline extraction using ConvexHull + concave refinement.
-	
+
 	Args:
 		points_xy: 2D points (N, 2)
 		concave_factor: Controls concavity (0=convex, 0.3=very concave)
-	
+		rng: Optional numpy Generator for reproducible sampling
+
 	Returns:
 		Shapely Polygon of the outline
 	"""
 	if points_xy.shape[0] < 3:
 		raise ValueError("Need at least 3 points for outline")
-	
+
+	if rng is None:
+		rng = np.random.default_rng()
+
 	# Start with convex hull
 	hull = ConvexHull(points_xy)
 	hull_pts = points_xy[hull.vertices]
-	
+
 	if concave_factor <= 0:
 		return geom.Polygon(hull_pts)
-	
+
 	# Refine edges that are too long by adding interior points
 	refined_pts = []
 	n_hull = len(hull_pts)
-	
+
 	# Estimate typical edge length from kNN
 	sample_size = min(10000, points_xy.shape[0])
-	sample_idx = np.random.choice(points_xy.shape[0], sample_size, replace=False)
+	sample_idx = rng.choice(points_xy.shape[0], sample_size, replace=False)
 	sample_pts = points_xy[sample_idx]
 	nbrs = NearestNeighbors(n_neighbors=2, algorithm="kd_tree").fit(sample_pts)
 	dists, _ = nbrs.kneighbors(sample_pts)
@@ -115,14 +114,16 @@ def save_outline(out_path: str, poly: geom.Polygon):
 	np.savetxt(out_path, coords, delimiter=",", header="x,y", comments="")
 
 
-def save_preview(preview_path: str, points_xy: np.ndarray, poly: geom.Polygon, max_scatter: int = 50000):
+def save_preview(preview_path: str, points_xy: np.ndarray, poly: geom.Polygon, max_scatter: int = 50000, rng: np.random.Generator | None = None):
 	if not _HAS_MPL:
 		return
+	if rng is None:
+		rng = np.random.default_rng()
 	plt.figure(figsize=(8, 12))
 	# light scatter of subsample
 	n = points_xy.shape[0]
 	if n > max_scatter:
-		idx = np.random.choice(n, max_scatter, replace=False)
+		idx = rng.choice(n, max_scatter, replace=False)
 		sample = points_xy[idx]
 	else:
 		sample = points_xy
@@ -143,6 +144,7 @@ def main() -> int:
 	parser.add_argument("--out", "-o", type=str, default=None, help="Output CSV path for outline coordinates.")
 	parser.add_argument("--preview", type=str, default=None, help="Optional PNG path to save an outline preview overlay.")
 	parser.add_argument("--max_points", type=int, default=100000, help="Max points used for outline computation.")
+	parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducible sampling.")
 	args = parser.parse_args()
 
 	in_path = args.path
@@ -152,20 +154,21 @@ def main() -> int:
 		print(f"File not found: {in_path}", file=sys.stderr)
 		return 1
 
+	rng = np.random.default_rng(args.seed)
 	pcd = load_pcd(in_path)
 	pts = np.asarray(pcd.points)
 	xy = project_to_xy(pts)
 	# Downsample XY for speed
 	n = xy.shape[0]
 	if n > args.max_points:
-		idx = np.random.choice(n, args.max_points, replace=False)
+		idx = rng.choice(n, args.max_points, replace=False)
 		xy_ds = xy[idx]
 	else:
 		xy_ds = xy
 
 	# Use fast method if alpha not specified, otherwise fall back to alphashape
 	if args.alpha is None:
-		poly = compute_fast_outline(xy_ds, concave_factor=args.concave)
+		poly = compute_fast_outline(xy_ds, concave_factor=args.concave, rng=rng)
 	else:
 		import alphashape
 		pts = [tuple(p) for p in xy_ds]
@@ -181,7 +184,7 @@ def main() -> int:
 	print(f"Saved outline: {out_path} (area={poly.area:.2f}, points={len(poly.exterior.coords)})")
 
 	if args.preview:
-		save_preview(args.preview, xy_ds, poly)
+		save_preview(args.preview, xy_ds, poly, rng=rng)
 		print(f"Saved preview: {args.preview}")
 	return 0
 

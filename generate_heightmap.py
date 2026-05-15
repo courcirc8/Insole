@@ -12,6 +12,7 @@ import sys
 import numpy as np
 import open3d as o3d
 from shapely.geometry import Polygon, Point
+from shapely.prepared import prep
 try:
 	import matplotlib.pyplot as plt
 	_HAS_MPL = True
@@ -19,13 +20,7 @@ except Exception:
 	_HAS_MPL = False
 from sklearn.neighbors import KNeighborsRegressor
 
-
-def load_pcd(path: str) -> o3d.geometry.PointCloud:
-	"""Load point cloud from file."""
-	pcd = o3d.io.read_point_cloud(path)
-	if pcd.is_empty():
-		raise ValueError(f"Empty point cloud: {path}")
-	return pcd
+from io_utils import load_point_cloud as load_pcd
 
 
 def load_outline_csv(path: str) -> Polygon:
@@ -36,7 +31,6 @@ def load_outline_csv(path: str) -> Polygon:
 
 def mask_points_in_polygon(xy: np.ndarray, poly: Polygon) -> np.ndarray:
 	"""Return boolean mask for points inside polygon using prepared geometry."""
-	from shapely.prepared import prep
 	pp = prep(poly)
 	mask = np.fromiter((pp.contains(Point(p[0], p[1])) for p in xy), dtype=bool, count=xy.shape[0])
 	return mask
@@ -52,7 +46,6 @@ def generate_grid(poly: Polygon, resolution: float) -> tuple:
 	GX, GY = np.meshgrid(xv, yv)
 	
 	# Pre-mask grid points outside polygon
-	from shapely.prepared import prep
 	pp = prep(poly)
 	grid_pts = np.column_stack([GX.ravel(), GY.ravel()])
 	inside_mask = np.array([pp.contains(Point(p[0], p[1])) for p in grid_pts])

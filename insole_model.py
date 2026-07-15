@@ -96,6 +96,17 @@ DEFAULT_CONFIG = {
         "skirt_width": 5.0,    # walls blend to ground over this distance
         "min_thickness": 1.6,  # printable floor at the very edge
     },
+    "bottom": {
+        # Underside reconstruction. A scanned insole taped flat on the
+        # reference plane has a flat CENTRE (tape holds it down, so top
+        # height = true material thickness) but its underside rises near the
+        # boundary — on scan1 the visible underside fringe measures a
+        # uniform ~2 mm lift all around the perimeter.
+        "mode": "flat",        # "flat" or "edge_bevel"
+        "bevel_mm": 2.0,       # underside lift at the very boundary
+        "bevel_width": 6.0,    # distance over which it fades to flat (mm)
+        "min_web": 1.2,        # minimum material kept above the bevel
+    },
     "smoothing_mm": 2.5,
     "resolution": 1.5,
 }
@@ -259,6 +270,25 @@ def compose_height(cfg: dict, grid: dict) -> np.ndarray:
     return np.where(mask, Z, np.nan)
 
 
+def compose_bottom(cfg: dict, grid: dict, Z: np.ndarray) -> np.ndarray | None:
+    """Underside height field, or None for a flat bottom.
+
+    "edge_bevel" reproduces the measured behaviour of a moulded insole: flat
+    centre, underside rising to `bevel_mm` over the outer `bevel_width` mm.
+    The bevel is capped so at least `min_web` mm of material remains.
+    """
+    b = cfg.get("bottom", {})
+    if b.get("mode", "flat") != "edge_bevel" or float(b.get("bevel_mm", 0)) <= 0:
+        return None
+    D, mask = grid["D"], grid["mask"]
+    w = max(float(b["bevel_width"]), grid["res"])
+    fall = 1.0 - np.clip(D / w, 0.0, 1.0)
+    B = float(b["bevel_mm"]) * fall * fall * (3 - 2 * fall)  # smooth rise
+    B = np.minimum(B, np.nan_to_num(Z, nan=0.0) - float(b["min_web"]))
+    B = np.maximum(B, 0.0)
+    return np.where(mask, B, 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Fit a config to a scanned heightmap (reproduce an existing insole)
 # ---------------------------------------------------------------------------
@@ -361,7 +391,9 @@ def export_stl(cfg: dict, grid: dict, Z: np.ndarray, out_path: str):
     from parametric_insole import heightmap_to_mesh
     GXm = np.where(grid["mask"], grid["GX"], np.nan)
     GYm = np.where(grid["mask"], grid["GY"], np.nan)
-    mesh = heightmap_to_mesh(GXm, GYm, Z, grid["poly"], bottom_mode="flat")
+    bottom = compose_bottom(cfg, grid, Z)
+    mesh = heightmap_to_mesh(GXm, GYm, Z, grid["poly"], bottom_mode="flat",
+                             bottom=bottom)
     mesh.export(out_path)
     b = mesh.bounds
     print(f"Saved STL: {out_path}")
@@ -425,12 +457,6 @@ def cmd_fit(args) -> int:
     cfg = load_config(args.config)
     fitted, diag = fit_to_heightmap(GXs, GYs, Zs, cfg)
 
-    if args.config_out:
-        os.makedirs(os.path.dirname(args.config_out) or ".", exist_ok=True)
-        with open(args.config_out, "w") as f:
-            yaml.safe_dump(fitted, f, sort_keys=False)
-        print(f"Saved fitted config: {args.config_out}")
-
     # Rebuild the model on the SCAN outline for a fair residual comparison
     from filter_insole import footprint_polygon
     pts = np.column_stack([GXs[diag["finite"]], GYs[diag["finite"]],
@@ -438,6 +464,22 @@ def cmd_fit(args) -> int:
     outline_poly = footprint_polygon(pts)
     grid = build_grid(fitted, outline_poly)
     Z = compose_height(fitted, grid)
+
+    # Peak compensation: when the crest sits near the boundary, the edge
+    # skirt and the smoothing shave its top. Bump the arch height so the
+    # model's maximum thickness matches the scan's.
+    deficit = float(np.nanmax(Zs) - np.nanmax(Z))
+    if deficit > 0.5:
+        fitted["arch"]["height"] = round(fitted["arch"]["height"] + deficit, 1)
+        Z = compose_height(fitted, grid)
+        print(f"Peak compensation: arch height +{deficit:.1f} mm "
+              f"(model max now {np.nanmax(Z):.1f} vs scan {np.nanmax(Zs):.1f})")
+
+    if args.config_out:
+        os.makedirs(os.path.dirname(args.config_out) or ".", exist_ok=True)
+        with open(args.config_out, "w") as f:
+            yaml.safe_dump(fitted, f, sort_keys=False)
+        print(f"Saved fitted config: {args.config_out}")
 
     # Interpolate scan onto the model grid for residuals/preview. The
     # heightmap axes are uniform linspaces over the bounds (see

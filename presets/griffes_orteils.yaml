@@ -1,0 +1,66 @@
+# Semelle orthopédique — orteils en griffes, appui talon + têtes métatarsiennes
+#
+# Objectif : marche longue avec redistribution des pressions.
+#   - Bol de talon profond et amorti (appui principal n°1)
+#   - Soutien de voûte médial marqué : recrute le médio-pied pour décharger
+#     talon et métatarses
+#   - Barre rétro-capitale : reprend l'appui JUSTE EN ARRIÈRE des têtes
+#     métatarsiennes (appui principal n°2) pour les soulager
+#   - Cuvette de décharge sous les têtes métatarsiennes
+#   - Zone d'orteils fine et plate : espace vertical maximal pour les
+#     griffes, aucune surépaisseur sous les orteils
+#
+# ⚠️ Prototype à faire valider par un podologue/orthopédiste avant usage
+# prolongé. Ajuster les hauteurs par pas de 1 à 2 mm selon le confort.
+
+foot:
+  length: 268.0        # reprendre la longueur de VOTRE pied/semelle
+  heel_width: 66.0
+  waist_width: 62.0
+  ball_width: 94.0
+  toe_width: 68.0
+  side: left           # mettre "right" pour le pied droit (miroir)
+
+# Plateforme longitudinale (mm) : amorti talon élevé, dégression vers des
+# orteils fins et plats.
+base_profile:
+  - [0.00, 18.0]
+  - [0.15, 20.0]       # coussin sous le talon
+  - [0.36, 22.0]       # base sous la voûte
+  - [0.60, 10.0]       # arrière des métatarses
+  - [0.78, 4.5]        # têtes métatarsiennes
+  - [1.00, 3.0]        # orteils : fin et plat (griffes)
+
+heel_cup:
+  rim_height: 12.0     # bol profond : stabilité du talon, appui n°1
+  rim_offset: 5.0
+  rim_width: 5.5
+  s_end: 0.32
+
+arch:
+  height: 16.0         # soutien médial marqué : décharge talon + métatarses
+  s: 0.38
+  t: -0.55
+  sigma_s: 0.11
+  sigma_t: 0.38
+
+met_pad:               # barre rétro-capitale (appui derrière les têtes)
+  height: 4.0
+  s: 0.60
+  t: -0.05
+  sigma_s: 0.045
+  sigma_t: 0.45
+
+met_relief:            # cuvette de décharge sous les têtes métatarsiennes
+  depth: 2.5
+  s: 0.72
+  t: -0.05
+  sigma_s: 0.05
+  sigma_t: 0.5
+
+edge:
+  skirt_width: 5.0
+  min_thickness: 1.6
+
+smoothing_mm: 2.5
+resolution: 1.5

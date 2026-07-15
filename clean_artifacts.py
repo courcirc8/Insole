@@ -2,7 +2,9 @@
 clean_artifacts.py
 
 Remove outlier/artifact points from an isolated point cloud before gridding.
-Supports statistical, radius, and conservative outlier removal methods.
+Supports statistical, radius, conservative and insole (shape-prior) methods.
+The "insole" method (default) exploits what an insole looks like — see
+filter_insole.py — and is drastically more effective on scan ghosts/spikes.
 """
 import argparse
 import os
@@ -12,6 +14,22 @@ import numpy as np
 import open3d as o3d
 
 from io_utils import load_point_cloud
+from filter_insole import InsolePriors, filter_insole_points, save_preview
+
+
+def clean_insole(pcd: o3d.geometry.PointCloud, max_height: float, preview: str | None):
+    """Shape-prior filtering: height + footprint + thin-shell priors."""
+    points = np.asarray(pcd.points)
+    priors = InsolePriors(max_height=max_height)
+    kept, report, diag = filter_insole_points(points, priors)
+    print(report.summary())
+    if preview:
+        pts_in = points.copy()
+        pts_in[:, 2] -= diag.get("ground", 0.0)
+        save_preview(preview, pts_in, kept, diag)
+        print(f"Saved preview: {preview}")
+    cleaned = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(kept))
+    return cleaned, kept
 
 
 def clean_statistical(pcd: o3d.geometry.PointCloud, nb_neighbors: int, std_ratio: float):
@@ -40,15 +58,17 @@ def main() -> int:
     parser.add_argument("--path", "-p", required=True, help="Input point cloud (PLY/PCD).")
     parser.add_argument("--output", "-o", required=True, help="Output cleaned PLY path.")
     parser.add_argument(
-        "--method", default="statistical",
-        choices=["statistical", "radius", "conservative"],
-        help="Cleaning method.",
+        "--method", default="insole",
+        choices=["insole", "statistical", "radius", "conservative"],
+        help="Cleaning method (default: insole shape-prior filtering).",
     )
     parser.add_argument("--nb_neighbors", type=int, default=20, help="Statistical neighbors.")
     parser.add_argument("--std_ratio", type=float, default=2.5, help="Statistical std ratio.")
     parser.add_argument("--nb_points", type=int, default=16, help="Radius min points.")
     parser.add_argument("--radius", type=float, default=3.0, help="Radius (units).")
     parser.add_argument("--std_multiplier", type=float, default=2.0, help="Conservative std multiplier.")
+    parser.add_argument("--max_height", type=float, default=60.0, help="Insole method: max height above ground (mm).")
+    parser.add_argument("--preview", default=None, help="Insole method: optional diagnostics PNG.")
     args = parser.parse_args()
 
     if not os.path.isfile(args.path):
@@ -59,7 +79,9 @@ def main() -> int:
     n_before = len(pcd.points)
     print(f"Before cleaning: {n_before:,} points")
 
-    if args.method == "statistical":
+    if args.method == "insole":
+        cleaned, inliers = clean_insole(pcd, args.max_height, args.preview)
+    elif args.method == "statistical":
         cleaned, inliers = clean_statistical(pcd, args.nb_neighbors, args.std_ratio)
     elif args.method == "radius":
         cleaned, inliers = clean_radius(pcd, args.nb_points, args.radius)

@@ -23,6 +23,7 @@ from sklearn.neighbors import KNeighborsRegressor
 from sklearn.cluster import DBSCAN
 
 from io_utils import load_geometry, splitext_with_suffix
+from filter_insole import InsolePriors, footprint_plausibility
 
 
 def load_scan(path: str):
@@ -131,6 +132,34 @@ def dbscan_largest_cluster(points: np.ndarray, eps: float = 3.0, min_samples: in
 	return points[labels == keep_label]
 
 
+def dbscan_best_insole_cluster(points: np.ndarray, eps: float = 3.0, min_samples: int = 500) -> np.ndarray:
+	"""Return points from the DBSCAN cluster that best matches insole shape priors.
+
+	Each cluster's XY footprint (PCA length/width) is scored against plausible
+	insole dimensions, so a large non-insole blob cannot win just by being big.
+	"""
+	labels = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1).fit_predict(points)
+	mask = labels >= 0
+	if not np.any(mask):
+		return points
+	priors = InsolePriors()
+	best_pts, best_score = None, -1.0
+	for lab in np.unique(labels[mask]):
+		cluster = points[labels == lab]
+		if cluster.shape[0] < 3:
+			continue
+		xy = cluster[:, :2] - cluster[:, :2].mean(axis=0)
+		_, evecs = np.linalg.eigh(np.cov(xy.T))
+		proj = xy @ evecs
+		ext = proj.max(axis=0) - proj.min(axis=0)
+		length, width = float(ext.max()), float(ext.min())
+		plaus = footprint_plausibility(length, width, priors)
+		score = cluster.shape[0] * max(plaus, 1e-3)
+		if score > best_score:
+			best_score, best_pts = score, cluster
+	return best_pts if best_pts is not None else points
+
+
 def plane_surface(points: np.ndarray, plane: np.ndarray, base_dist: float, grid_res: float, residual_thresh: float) -> np.ndarray:
 	"""Plane removal then kNN surface regression in plane-aligned frame; keep low-residual points."""
 	pts = plane_only(points, plane, base_dist)
@@ -206,12 +235,13 @@ def main() -> int:
 			kept = plane_surface(pts, plane_abcd, base_dist=args.dist, grid_res=args.grid_res, residual_thresh=args.residual_thresh)
 		else:  # safe
 			kept = plane_only(pts, plane_abcd, args.dist)
-			kept = dbscan_largest_cluster(kept, eps=3.0, min_samples=500)
+			kept = dbscan_best_insole_cluster(kept, eps=3.0, min_samples=500)
 		if kept.shape[0] == 0:
 			raise ValueError("Isolated point cloud is empty; adjust thresholds.")
-		
-		# Simple Z alignment: translate so minimum Z becomes 0
-		z_min = kept[:, 2].min()
+
+		# Robust Z alignment: a low percentile instead of the raw minimum, so
+		# a single deep artifact cannot shift the whole cloud.
+		z_min = np.percentile(kept[:, 2], 0.5)
 		kept[:, 2] -= z_min
 		
 		print(f"Aligned insole Z range: [{kept[:, 2].min():.1f}, {kept[:, 2].max():.1f}]")

@@ -1,8 +1,16 @@
 """
 extract_outline.py
 
-Extract 2D insole outline from isolated point cloud using fast ConvexHull + concave refinement.
-Optimized to avoid alphashape performance bottlenecks on large point sets.
+Extract 2D insole outline from an isolated point cloud.
+
+Methods:
+- mask (default): trace the boundary of the morphologically cleaned footprint
+  occupancy mask (filter_insole.footprint_polygon). Covers exactly the region
+  that contains points — no wedges, no bites.
+- fast: ConvexHull + concave refinement heuristic (legacy; can cut deep
+  triangular notches into long straight edges).
+- alpha: alphashape (slow on large sets); selected automatically when
+  --alpha is given.
 """
 import argparse
 import os
@@ -139,8 +147,10 @@ def save_preview(preview_path: str, points_xy: np.ndarray, poly: geom.Polygon, m
 def main() -> int:
 	parser = argparse.ArgumentParser(description="Extract 2D insole outline via alpha shape from isolated PLY.")
 	parser.add_argument("--path", "-p", type=str, required=True, help="Path to isolated point cloud (PLY/PCD).")
-	parser.add_argument("--alpha", type=float, default=None, help="Alpha parameter for alphashape; if omitted, uses fast ConvexHull method.")
+	parser.add_argument("--method", type=str, default="mask", choices=["mask", "fast", "alpha"], help="Outline method (default: mask = footprint-mask contour).")
+	parser.add_argument("--alpha", type=float, default=None, help="Alpha parameter for alphashape; implies --method alpha.")
 	parser.add_argument("--concave", type=float, default=0.15, help="Concave factor for fast method (0=convex, 0.3=very concave).")
+	parser.add_argument("--smooth", type=float, default=3.0, help="Mask method: boundary smoothing radius (mm).")
 	parser.add_argument("--out", "-o", type=str, default=None, help="Output CSV path for outline coordinates.")
 	parser.add_argument("--preview", type=str, default=None, help="Optional PNG path to save an outline preview overlay.")
 	parser.add_argument("--max_points", type=int, default=100000, help="Max points used for outline computation.")
@@ -166,13 +176,19 @@ def main() -> int:
 	else:
 		xy_ds = xy
 
-	# Use fast method if alpha not specified, otherwise fall back to alphashape
-	if args.alpha is None:
+	method = "alpha" if args.alpha is not None else args.method
+	if method == "mask":
+		from filter_insole import footprint_polygon
+		# The mask method rasterizes; it uses the full cloud, not the subsample.
+		poly = footprint_polygon(pts, smooth_mm=args.smooth)
+	elif method == "fast":
 		poly = compute_fast_outline(xy_ds, concave_factor=args.concave, rng=rng)
 	else:
 		import alphashape
-		pts = [tuple(p) for p in xy_ds]
-		alpha_shape = alphashape.alphashape(pts, args.alpha)
+		if args.alpha is None:
+			raise ValueError("--method alpha requires --alpha.")
+		pts2d = [tuple(p) for p in xy_ds]
+		alpha_shape = alphashape.alphashape(pts2d, args.alpha)
 		if isinstance(alpha_shape, geom.MultiPolygon):
 			alpha_shape = max(alpha_shape.geoms, key=lambda g: g.area)
 		if not isinstance(alpha_shape, geom.Polygon):

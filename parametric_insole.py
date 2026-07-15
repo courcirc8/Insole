@@ -16,7 +16,6 @@ import numpy as np
 import yaml
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import Delaunay
-from scipy.spatial.distance import cdist
 import trimesh
 from shapely.geometry import Polygon, Point
 
@@ -165,30 +164,44 @@ def create_parametric_insole(
     """
     # Normalize coordinates for parametric positioning
     GX_norm, GY_norm, bounds = normalize_coords(GX, GY)
-    
+
     # Start with base thickness
     Z_composed = np.full_like(Z_base, params.base_thickness)
-    
+
     # Add scan-derived variations (where available)
     mask_valid = np.isfinite(Z_base)
     if np.any(mask_valid):
         # Blend scan data with base thickness
         Z_scan_offset = Z_base - np.nanmean(Z_base[mask_valid])
         Z_composed[mask_valid] += Z_scan_offset[mask_valid] * 0.5  # 50% scan influence
-    
-    # Add parametric features
+
+    # Add parametric features. GX_norm/GY_norm are NaN outside the outline,
+    # so the fields are NaN there too — zero them instead of letting NaN
+    # contaminate Z_composed (values outside the footprint are discarded by
+    # the final mask anyway).
     arch_field = create_arch_field(GX_norm, GY_norm, params)
     heel_field = create_heel_field(GX_norm, GY_norm, params)
     met_field = create_met_pad_field(GX_norm, GY_norm, params, bounds)
-    
-    Z_composed += arch_field + heel_field + met_field
-    
-    # Smooth and constrain
+
+    Z_composed += np.nan_to_num(arch_field + heel_field + met_field)
+
+    # Smooth within the footprint only. A plain gaussian_filter would mix
+    # in out-of-footprint values and, with any NaN present, eat ~3*sigma
+    # cells off the entire rim.
     if params.smooth_sigma > 0:
-        Z_composed = gaussian_filter(Z_composed, sigma=params.smooth_sigma)
-    
+        weight = mask_valid.astype(float)
+        num = gaussian_filter(np.where(mask_valid, Z_composed, 0.0), sigma=params.smooth_sigma)
+        den = gaussian_filter(weight, sigma=params.smooth_sigma)
+        with np.errstate(invalid="ignore"):
+            Z_smoothed = num / den
+        Z_composed = np.where(den > 1e-6, Z_smoothed, Z_composed)
+
     Z_composed = apply_thickness_constraints(Z_composed, params)
-    
+
+    # The footprint is defined by the scan heightmap: NaN outside it so the
+    # mesher keeps exactly the outline-masked region.
+    Z_composed = np.where(mask_valid, Z_composed, np.nan)
+
     return Z_composed
 
 
@@ -207,61 +220,155 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
     mask = np.isfinite(Z)
     if not np.any(mask):
         raise ValueError("No finite Z values in heightmap")
-    
+
     # Extract valid points and create top surface
     valid_indices = np.where(mask)
     top_vertices = np.column_stack([GX[valid_indices], GY[valid_indices], Z[valid_indices]])
-    
-    # Triangulate top surface using 2D Delaunay
+
+    # Triangulate top surface using 2D Delaunay. Delaunay fills the CONVEX
+    # HULL of the points, so triangles bridging concave parts of the outline
+    # (e.g. the medial arch waist) must be discarded: keep only triangles
+    # whose centroid lies inside the outline polygon.
     xy_points = top_vertices[:, :2]
     tri = Delaunay(xy_points)
-    
+    simplices_all = tri.simplices
+
+    def _signed_area2(s):
+        p0, p1, p2 = (xy_points[s[:, k]] for k in range(3))
+        return (p1[:, 0] - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - \
+               (p1[:, 1] - p0[:, 1]) * (p2[:, 0] - p0[:, 0])
+
+    def _directed_boundary(kept):
+        """Directed edges belonging to exactly one triangle, with the
+        triangle's own winding."""
+        edges = np.concatenate([kept[:, [0, 1]], kept[:, [1, 2]], kept[:, [2, 0]]])
+        _, first_idx, counts = np.unique(
+            np.sort(edges, axis=1), axis=0, return_index=True, return_counts=True)
+        return edges[first_idx[counts == 1]]
+
+    centroids = xy_points[simplices_all].mean(axis=1)
+    import shapely
+    inside = shapely.contains_xy(outline.buffer(1e-9), centroids[:, 0], centroids[:, 1])
+    area2_all = _signed_area2(simplices_all)
+    nondegenerate = np.abs(area2_all) > 1e-12
+    keep = inside & nondegenerate
+    if not keep.any():
+        raise ValueError("No triangles remain inside the outline")
+
+    # Pinch repair: where the kept region touches itself at a single vertex
+    # (a boundary staircase artifact), that vertex ends up on 4 boundary
+    # edges and the vertical wall edge would be shared by 4 faces — not
+    # watertight. Re-adding the excluded triangle(s) incident to the pinch
+    # vertex merges the regions and removes the pinch. Only grid-scale
+    # triangles qualify: re-adding a long triangle that bridges a concave
+    # stretch of the outline would seal it off and add a tunnel (genus).
+    tri_pts = xy_points[simplices_all]
+    edge_len = np.linalg.norm(tri_pts - np.roll(tri_pts, -1, axis=1), axis=2)
+    grid_scale = np.median(edge_len[keep])
+    small = edge_len.max(axis=1) <= 2.5 * grid_scale
+    for _ in range(50):
+        kept_idx = np.flatnonzero(keep)
+        kept_tris = simplices_all[kept_idx]
+        boundary = _directed_boundary(kept_tris)
+        verts, vcounts = np.unique(boundary.ravel(), return_counts=True)
+        pinch = verts[vcounts > 2]
+        if pinch.size == 0:
+            break
+        # Preferred repair: re-add a grid-scale excluded triangle at the
+        # pinch (fills the notch without changing the outline).
+        incident = (~keep) & nondegenerate & small & \
+            np.isin(simplices_all, pinch).any(axis=1)
+        if incident.any():
+            keep |= incident
+            continue
+        # Fallback (pinch along a concave stretch, where the only excluded
+        # neighbours are long outline-bridging triangles): drop every fan of
+        # kept triangles at the pinch vertex except the largest. The loss is
+        # about one grid cell.
+        changed = False
+        for p in pinch:
+            t_local = np.flatnonzero((kept_tris == p).any(axis=1))
+            if t_local.size < 2:
+                continue
+            # Group the triangles at p into fans connected via edges at p.
+            parent = {int(t): int(t) for t in t_local}
+
+            def _find(x):
+                while parent[x] != x:
+                    parent[x] = parent[parent[x]]
+                    x = parent[x]
+                return x
+
+            edge_owner = {}
+            for t in t_local:
+                tri_v = kept_tris[t]
+                for other in tri_v[tri_v != p]:
+                    o = int(other)
+                    if o in edge_owner:
+                        ra, rb = _find(edge_owner[o]), _find(int(t))
+                        if ra != rb:
+                            parent[ra] = rb
+                    else:
+                        edge_owner[o] = int(t)
+            fans = {}
+            for t in t_local:
+                fans.setdefault(_find(int(t)), []).append(int(t))
+            if len(fans) < 2:
+                continue
+            for fan in sorted(fans.values(), key=len)[:-1]:
+                keep[kept_idx[fan]] = False
+                changed = True
+        if not changed:
+            break
+
+    simplices = simplices_all[keep]
+
+    # Enforce CCW winding (Qhull does not guarantee orientation); the wall
+    # construction below relies on consistent top-face winding.
+    signed2 = _signed_area2(simplices)
+    simplices[signed2 < 0] = simplices[signed2 < 0][:, ::-1]
+
+    # Drop vertices not referenced by any kept triangle and reindex
+    used = np.unique(simplices)
+    remap = -np.ones(len(top_vertices), dtype=np.int64)
+    remap[used] = np.arange(used.size)
+    simplices = remap[simplices]
+    top_vertices = top_vertices[used]
+
     # Create bottom vertices
     bottom_vertices = top_vertices.copy()
     bottom_vertices[:, 2] -= shell_thickness
-    
-    # Combine vertices
+
     all_vertices = np.vstack([top_vertices, bottom_vertices])
     n_top = len(top_vertices)
-    
+
     faces = []
-    
-    # Top surface faces
-    faces.extend(tri.simplices.tolist())
-    
-    # Bottom surface faces (reversed winding)
-    bottom_faces = tri.simplices + n_top
-    faces.extend(bottom_faces[:, ::-1].tolist())
-    
-    # Create side walls along the outline boundary
-    outline_coords = np.array(outline.exterior.coords[:-1])  # Remove duplicate last point
-    
-    # Find closest vertices to outline points
-    dists = cdist(outline_coords, xy_points)
-    boundary_indices = np.argmin(dists, axis=1)
-    
-    # Create side faces connecting boundary vertices
-    n_boundary = len(boundary_indices)
-    for i in range(n_boundary):
-        v_top_curr = boundary_indices[i]
-        v_top_next = boundary_indices[(i + 1) % n_boundary]
-        v_bot_curr = v_top_curr + n_top
-        v_bot_next = v_top_next + n_top
-        
-        # Two triangles per side edge
-        faces.append([v_top_curr, v_top_next, v_bot_curr])
-        faces.append([v_top_next, v_bot_next, v_bot_curr])
-    
-    mesh = trimesh.Trimesh(vertices=all_vertices, faces=faces)
-    
+    faces.extend(simplices.tolist())                    # top (CCW, normals up)
+    faces.extend((simplices + n_top)[:, ::-1].tolist())  # bottom (reversed)
+
+    # Side walls on the TRUE boundary of the kept triangulation: an edge is
+    # a boundary edge iff it belongs to exactly one triangle. Walking each
+    # directed edge with its triangle's winding gives consistently oriented
+    # walls, so every edge of the closed shell is shared by exactly two
+    # faces — watertight by construction.
+    # A directed boundary edge (u, v) is traversed u->v by its top triangle;
+    # the wall must traverse it v->u so every shared edge is walked in
+    # opposite directions by its two faces (consistent outward winding).
+    boundary_directed = _directed_boundary(simplices)
+    for u, v in boundary_directed:
+        faces.append([int(v), int(u), int(u) + n_top])
+        faces.append([int(v), int(u) + n_top, int(v) + n_top])
+
+    mesh = trimesh.Trimesh(vertices=all_vertices, faces=faces, process=False)
+
     # Clean up
-    mesh.merge_vertices()
     mesh.update_faces(mesh.unique_faces())
-    
+    mesh.remove_unreferenced_vertices()
+
     # Fix winding if volume is negative
     if mesh.volume < 0:
         mesh.invert()
-    
+
     return mesh
 
 

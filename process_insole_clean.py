@@ -46,7 +46,8 @@ def main():
     parser.add_argument("--dist", type=float, default=0.5, help="Plane distance threshold.")
     
     # Artifact cleaning (NEW - before grid)
-    parser.add_argument("--clean_method", default="statistical", choices=["statistical", "conservative", "radius"], help="Artifact cleaning method.")
+    parser.add_argument("--clean_method", default="insole", choices=["insole", "statistical", "conservative", "radius"], help="Artifact cleaning method (default: insole shape-prior filtering).")
+    parser.add_argument("--max_height", type=float, default=60.0, help="Insole cleaning: max height above ground (mm).")
     parser.add_argument("--std_ratio", type=float, default=2.5, help="Statistical outlier std ratio.")
     parser.add_argument("--nb_neighbors", type=int, default=20, help="Statistical outlier neighbors.")
     
@@ -93,7 +94,10 @@ def main():
         "--nb_neighbors", str(args.nb_neighbors),
         "--std_ratio", str(args.std_ratio),
         "--std_multiplier", str(args.std_ratio),
+        "--max_height", str(args.max_height),
     ]
+    if args.preview and args.clean_method == "insole":
+        cmd2.extend(["--preview", f"{output_dir}/{scan_name}_clean_diag.png"])
     run_cmd(cmd2, "2. Artifact Cleaning (PRE-GRID)")
     
     # Step 3: Extract outline from CLEAN points

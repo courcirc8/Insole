@@ -1,5 +1,9 @@
 # Semelle orthopédique — orteils en griffes, appui talon + têtes métatarsiennes
 #
+# Hauteurs calées sur le scan RECTIFIÉ EN ASSIETTE (rotation du plan table,
+# inclinaison 5,5° corrigée) : bol talon ~14 mm de profondeur, crête de voûte
+# ~32 mm, base talon ~6-8 mm.
+#
 # Objectif : marche longue avec redistribution des pressions.
 #   - Bol de talon profond et amorti (appui principal n°1)
 #   - Soutien de voûte médial marqué : recrute le médio-pied pour décharger
@@ -14,35 +18,35 @@
 # prolongé. Ajuster les hauteurs par pas de 1 à 2 mm selon le confort.
 
 foot:
-  length: 268.0        # reprendre la longueur de VOTRE pied/semelle
-  heel_width: 66.0
-  waist_width: 62.0
-  ball_width: 94.0
-  toe_width: 68.0
+  length: 270.0        # reprendre la longueur de VOTRE pied/semelle
+  heel_width: 72.0
+  waist_width: 76.0
+  ball_width: 91.0
+  toe_width: 64.0
   side: left           # mettre "right" pour le pied droit (miroir)
 
-# Plateforme longitudinale (mm) : amorti talon élevé, dégression vers des
-# orteils fins et plats.
+# Plateforme longitudinale (mm) : coussin talon réaliste, dégression vers
+# des orteils fins et plats.
 base_profile:
-  - [0.00, 18.0]
-  - [0.15, 20.0]       # coussin sous le talon
-  - [0.36, 22.0]       # base sous la voûte
-  - [0.60, 10.0]       # arrière des métatarses
-  - [0.78, 4.5]        # têtes métatarsiennes
+  - [0.00, 6.5]
+  - [0.15, 7.5]        # coussin sous le talon (appui n°1, amorti TPU)
+  - [0.36, 12.0]       # base sous la voûte
+  - [0.60, 6.5]        # arrière des métatarses
+  - [0.78, 4.0]        # têtes métatarsiennes
   - [1.00, 3.0]        # orteils : fin et plat (griffes)
 
 heel_cup:
-  rim_height: 12.0     # bol profond : stabilité du talon, appui n°1
-  rim_offset: 5.0
-  rim_width: 5.5
+  rim_height: 12.0     # bol profond (~14 mm utiles) : stabilité, appui n°1
+  rim_offset: 4.0
+  rim_width: 5.0
   s_end: 0.32
 
 arch:
-  height: 16.0         # soutien médial marqué : décharge talon + métatarses
+  height: 17.0         # soutien médial marqué : décharge talon + métatarses
   s: 0.38
-  t: -0.55
-  sigma_s: 0.11
-  sigma_t: 0.38
+  t: -0.60
+  sigma_s: 0.10
+  sigma_t: 0.30
 
 met_pad:               # barre rétro-capitale (appui derrière les têtes)
   height: 4.0
@@ -52,7 +56,7 @@ met_pad:               # barre rétro-capitale (appui derrière les têtes)
   sigma_t: 0.45
 
 met_relief:            # cuvette de décharge sous les têtes métatarsiennes
-  depth: 2.5
+  depth: 2.0
   s: 0.72
   t: -0.05
   sigma_s: 0.05

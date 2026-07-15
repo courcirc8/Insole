@@ -20,7 +20,11 @@ looks like:
                        layers) or far ABOVE it (spikes) are rejected. The
                        tolerance widens with local slope so heel-cup walls
                        and arch flanks are preserved.
-4. Local-support prior — a real surface patch is locally dense; a light
+4. Connectivity prior — the insole is ONE connected shell in 3D: only the
+                       largest voxel-connected component is kept, which
+                       removes floating ghost patches that locally mimic a
+                       surface (and thus survive the thin-shell prior).
+5. Local-support prior — a real surface patch is locally dense; a light
                        statistical pass polishes remaining stragglers.
 
 Every stage is vectorised on a raster grid, so the full filter runs in
@@ -81,6 +85,9 @@ class InsolePriors:
     slope_factor: float = 1.5       # tolerance growth per unit surface slope
     surf_iterations: int = 2        # robust re-fit iterations
 
+    # 3D connectivity prior
+    connect_voxel: float = 1.5      # voxel size; gaps > 2*voxel disconnect
+
     # Local-support polish
     stat_neighbors: int = 24
     stat_std_ratio: float = 2.8
@@ -96,6 +103,7 @@ class FilterReport:
     n_after_height: int = 0
     n_after_footprint: int = 0
     n_after_surface: int = 0
+    n_after_connect: int = 0
     n_after_polish: int = 0
     footprint_length: float = 0.0
     footprint_width: float = 0.0
@@ -110,6 +118,7 @@ class FilterReport:
             f"After height prior:      {pct(self.n_after_height)}",
             f"After footprint prior:   {pct(self.n_after_footprint)}",
             f"After thin-shell prior:  {pct(self.n_after_surface)}",
+            f"After connectivity:      {pct(self.n_after_connect)}",
             f"After local polish:      {pct(self.n_after_polish)}",
             f"Footprint: {self.footprint_length:.0f} x {self.footprint_width:.0f} mm "
             f"(insole plausibility {self.footprint_plausibility:.2f})",
@@ -257,11 +266,17 @@ def apply_footprint_prior(points: np.ndarray, priors: InsolePriors,
     mask = counts >= thresh
 
     # Morphology: bridge small scan gaps, fill interior holes, shave wisps.
+    # Pad first: scipy treats beyond-border as empty (border_value=0), so an
+    # unpadded erosion would bite into regions touching the array edge —
+    # exactly the toe/heel extremes, since the grid spans the data extent.
     it_close = max(1, int(round(priors.closing_mm / priors.cell)))
     it_open = max(1, int(round(priors.opening_mm / priors.cell)))
+    pad = it_close + it_open + 1
+    mask = np.pad(mask, pad)
     mask = ndimage.binary_closing(mask, iterations=it_close)
     mask = ndimage.binary_fill_holes(mask)
     mask = ndimage.binary_opening(mask, iterations=it_open)
+    mask = mask[pad:-pad, pad:-pad]
 
     # Score every connected component against the insole shape prior instead
     # of blindly keeping the largest one.
@@ -293,6 +308,59 @@ def apply_footprint_prior(points: np.ndarray, priors: InsolePriors,
     keep_grid = ndimage.binary_dilation(keep_grid, iterations=1)
     point_mask = keep_grid.ravel()[flat]
     return point_mask, keep_grid, origin
+
+
+def footprint_polygon(points: np.ndarray, priors: InsolePriors | None = None,
+                      smooth_mm: float = 3.0):
+    """Insole outline as a shapely Polygon traced from the occupied footprint.
+
+    Expects an ALREADY-FILTERED cloud (noise removed). Every occupied raster
+    cell counts — no density threshold, no opening — so thin but genuine
+    boundary regions (toe tip, heel rim) are preserved; small scan gaps are
+    bridged by closing/hole-filling and the boundary staircase is smoothed
+    with a closing/opening buffer pass. Unlike concave-hull heuristics this
+    can never cut wedges into the footprint: the polygon covers exactly the
+    region that actually contains points.
+    """
+    import shapely
+    from shapely.ops import unary_union
+
+    if priors is None:
+        priors = InsolePriors()
+    xy = np.asarray(points, dtype=float)[:, :2]
+    origin, shape = _grid_shape(xy, priors.cell)
+    flat = _cell_ids(xy, origin, priors.cell, shape)
+    counts = np.bincount(flat, minlength=shape[0] * shape[1]).reshape(shape)
+    mask = counts > 0
+    # Pad before closing: scipy's border_value=0 would otherwise erode the
+    # regions touching the array edge (toe/heel extremes).
+    it_close = max(1, int(round(priors.closing_mm / priors.cell)))
+    pad = it_close + 1
+    mask = np.pad(mask, pad)
+    mask = ndimage.binary_closing(mask, iterations=it_close)
+    mask = ndimage.binary_fill_holes(mask)
+    mask = mask[pad:-pad, pad:-pad]
+    labels, n_comp = ndimage.label(mask)
+    if n_comp == 0:
+        raise ValueError("Footprint mask is empty; cannot trace an outline.")
+    if n_comp > 1:
+        sizes = ndimage.sum_labels(mask, labels, index=np.arange(1, n_comp + 1))
+        mask = labels == (1 + int(np.argmax(sizes)))
+
+    rows, cols = np.nonzero(mask)
+    c = priors.cell
+    x0 = origin[0] + cols * c
+    y0 = origin[1] + rows * c
+    poly = unary_union(shapely.box(x0, y0, x0 + c, y0 + c))
+    # Morphological closing (dilate then erode) smooths the raster staircase
+    # and NEVER shrinks below the occupied region — an opening would bite
+    # into high-curvature toe/heel tips. A half-cell outward margin then
+    # guarantees boundary points fall inside the polygon.
+    s = max(smooth_mm, c)
+    poly = poly.buffer(s).buffer(-s).buffer(0.5 * c)
+    if poly.geom_type == "MultiPolygon":
+        poly = max(poly.geoms, key=lambda g: g.area)
+    return shapely.geometry.Polygon(poly.exterior).simplify(0.5 * c)
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +420,44 @@ def apply_surface_prior(points: np.ndarray, priors: InsolePriors):
 
 
 # ---------------------------------------------------------------------------
-# Stage 4 — local-support polish
+# Stage 4 — 3D connectivity prior
+# ---------------------------------------------------------------------------
+
+def apply_connectivity_prior(points: np.ndarray, priors: InsolePriors,
+                             report: FilterReport) -> np.ndarray:
+    """Keep only the largest 3D voxel-connected component.
+
+    A real insole is ONE connected shell. Floating ghost patches can locally
+    mimic a smooth surface (they define their own per-cell "top"), so the
+    thin-shell prior alone cannot reject them — but they hang detached in
+    space. With voxel size v and 26-connectivity, any gap wider than 2*v
+    disconnects, so a patch >= 2*connect_voxel away from the shell is dropped.
+    """
+    v = priors.connect_voxel
+    mins = points.min(axis=0)
+    ijk = np.floor((points - mins) / v).astype(np.int64)
+    grid = np.zeros(ijk.max(axis=0) + 1, dtype=bool)
+    grid[ijk[:, 0], ijk[:, 1], ijk[:, 2]] = True
+    labels, n_comp = ndimage.label(grid, structure=np.ones((3, 3, 3), dtype=int))
+    if n_comp <= 1:
+        return np.ones(len(points), dtype=bool)
+    point_labels = labels[ijk[:, 0], ijk[:, 1], ijk[:, 2]]
+    counts = np.bincount(point_labels.ravel())
+    counts[0] = 0
+    keep = int(np.argmax(counts))
+    mask = point_labels == keep
+    if mask.sum() < 0.5 * len(points):
+        # A shell this fragmented means the voxel size does not match the
+        # sampling density; refuse to guess and keep everything.
+        report.warnings.append(
+            "connectivity prior skipped: largest 3D component holds <50% of "
+            "points (increase connect_voxel for sparse scans)")
+        return np.ones(len(points), dtype=bool)
+    return mask
+
+
+# ---------------------------------------------------------------------------
+# Stage 5 — local-support polish
 # ---------------------------------------------------------------------------
 
 def apply_local_polish(points: np.ndarray, priors: InsolePriors) -> np.ndarray:
@@ -414,7 +519,13 @@ def filter_insole_points(points: np.ndarray, priors: InsolePriors | None = None,
         pts = pts[mask]
     report.n_after_surface = len(pts)
 
-    # 4 — polish
+    # 4 — 3D connectivity prior
+    if len(pts):
+        mask = apply_connectivity_prior(pts, priors, report)
+        pts = pts[mask]
+    report.n_after_connect = len(pts)
+
+    # 5 — polish
     if polish and len(pts):
         mask = apply_local_polish(pts, priors)
         pts = pts[mask]

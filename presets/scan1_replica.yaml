@@ -1,33 +1,33 @@
 foot:
-  length: 268.4
-  heel_width: 72.5
-  waist_width: 84.9
+  length: 270.0
+  heel_width: 72.6
+  waist_width: 83.4
   ball_width: 91.1
-  toe_width: 61.7
+  toe_width: 61.8
   side: left
 base_profile:
 - - 0.02
-  - 22.2
+  - 6.5
 - - 0.15
-  - 20.1
+  - 6.0
 - - 0.36
-  - 23.2
+  - 13.1
 - - 0.62
-  - 13.8
+  - 8.2
 - - 0.8
-  - 6.1
+  - 4.9
 - - 0.97
-  - 3.2
+  - 5.1
 heel_cup:
-  rim_height: 12.4
+  rim_height: 11.8
   rim_offset: 3.5
   rim_width: 5.0
   s_end: 0.32
 arch:
-  height: 16.6
-  s: 0.36
+  height: 18.8
+  s: 0.38
   t: -0.93
-  sigma_s: 0.081
+  sigma_s: 0.084
   sigma_t: 0.15
 met_pad:
   height: 0.0

@@ -14,6 +14,7 @@ Open-source Python pipeline to convert 3D-scanned therapeutic insoles into param
 | 📐 Outline | `extract_outline.py` | Footprint-mask contour (default) / concave hull / alpha shape |
 | 🗺️ Heightmap | `generate_heightmap.py` | kNN-interpolated Z grid within outline |
 | ⚙️ Parametric | `parametric_insole.py` | Arch support, heel posting, met pads → STL |
+| 🦶 Model | `insole_model.py` | Anatomical parametric model: fit a scan or generate variants (presets/) |
 | 🌐 Web viewer | `ply_viewer_web.py` | Interactive 3D viewer with Z-filtering, angle adjustment & export |
 | 🖥️ GUI viewer | `ply_viewer_gui.py` | Desktop Tkinter + matplotlib viewer |
 | 🖼️ Render | `render_stl.py` | Render STL to PNG (headless) |
@@ -126,6 +127,30 @@ exploits what a scanned insole *is*:
 On the sample scan this removes ~17% of points — all three noise blobs, the
 ghost outline around the insole and the under-surface ghost layer — where the
 previous statistical filter removed 0.1% and kept every artifact.
+
+## Anatomical parametric model (`insole_model.py`)
+
+Describes an insole as named anatomical zones in normalized foot coordinates
+(s = heel→toe, t = medial→lateral): longitudinal base profile, heel cup rim,
+medial arch dome, retro-capital pad, met-head relief, and an **edge skirt**
+that closes the outer walls a top-down scan cannot see (fixes the truncated
+heel look).
+
+```bash
+# Reproduce a scanned insole (fit → YAML + STL + residual map)
+python insole_model.py fit --heightmap outputs/scan1/scan1 \
+  --config-out presets/scan1_replica.yaml -o replica.stl --preview fit.png
+
+# Generate a variant from a preset (e.g. claw-toes offloading insole)
+python insole_model.py generate -c presets/griffes_orteils.yaml \
+  -o insole.stl --preview preview.png
+```
+
+On scan1 the fitted model reproduces the scan with a median residual of
+1.35 mm. `presets/griffes_orteils.yaml` is a documented orthopedic example
+(deep heel cup, strong medial arch, retro-capital bar, met-head relief,
+thin flat toe zone) — validate any orthotic with a clinician before
+prolonged use.
 
 ## Configuration
 

@@ -24,7 +24,7 @@ heel_cup:
   rim_width: 5.0
   s_end: 0.32
 arch:
-  height: 18.8
+  height: 23.0
   s: 0.38
   t: -0.93
   sigma_s: 0.084
@@ -43,6 +43,11 @@ met_relief:
   sigma_t: 0.5
 edge:
   skirt_width: 5.0
-  min_thickness: 1.6
+  min_thickness: 2.4
+bottom:
+  mode: edge_bevel
+  bevel_mm: 2.0
+  bevel_width: 6.0
+  min_web: 2.0
 smoothing_mm: 2.5
 resolution: 1.5

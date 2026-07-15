@@ -64,7 +64,15 @@ met_relief:            # cuvette de décharge sous les têtes métatarsiennes
 
 edge:
   skirt_width: 5.0
-  min_thickness: 1.6
+  min_thickness: 2.4
 
 smoothing_mm: 2.5
 resolution: 1.5
+
+# Fond reconstruit : plat au centre (état scanné, collé à plat = épaisseur
+# vraie), chanfrein périphérique du dessous mesuré sur le scan (~2 mm).
+bottom:
+  mode: edge_bevel
+  bevel_mm: 2.0
+  bevel_width: 6.0
+  min_web: 2.0

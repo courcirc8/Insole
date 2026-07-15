@@ -212,7 +212,8 @@ def create_parametric_insole(
 
 
 def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Polygon,
-                      shell_thickness: float = 2.0, bottom_mode: str = "flat") -> trimesh.Trimesh:
+                      shell_thickness: float = 2.0, bottom_mode: str = "flat",
+                      bottom: np.ndarray | None = None) -> trimesh.Trimesh:
     """
     Convert heightmap to watertight STL mesh following the insole outline.
 
@@ -222,6 +223,9 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
         shell_thickness: Shell thickness (bottom_mode="shell" only)
         bottom_mode: "flat" = solid from z=0 up to Z (flat underside);
                      "shell" = underside drapes Z - shell_thickness
+        bottom: optional grid of underside heights (same shape as Z); when
+                given it overrides bottom_mode, letting the caller model a
+                non-flat underside (e.g. a measured peripheral bevel)
 
     Returns:
         Watertight trimesh
@@ -233,6 +237,7 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
     # Extract valid points and create top surface
     valid_indices = np.where(mask)
     top_vertices = np.column_stack([GX[valid_indices], GY[valid_indices], Z[valid_indices]])
+    bottom_z_all = bottom[valid_indices] if bottom is not None else None
 
     # Triangulate top surface using 2D Delaunay. Delaunay fills the CONVEX
     # HULL of the points, so triangles bridging concave parts of the outline
@@ -346,7 +351,9 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
 
     # Create bottom vertices
     bottom_vertices = top_vertices.copy()
-    if bottom_mode == "flat":
+    if bottom_z_all is not None:
+        bottom_vertices[:, 2] = bottom_z_all[used]
+    elif bottom_mode == "flat":
         bottom_vertices[:, 2] = 0.0
     elif bottom_mode == "shell":
         bottom_vertices[:, 2] -= shell_thickness

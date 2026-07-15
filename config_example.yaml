@@ -32,4 +32,10 @@ edge_chamfer: 2.0
 # Smoothing
 smooth_sigma: 2.0
 
+# Underside
+# flat  = solid block from z=0 up to the thickness field (flat print bed / shoe contact)
+# shell = constant-thickness shell draped under the top surface (legacy)
+bottom_mode: flat
+shell_thickness: 2.0  # used only by bottom_mode: shell
+
 

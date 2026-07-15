@@ -50,9 +50,15 @@ class InsoleParams:
     # Edge control
     edge_lip_height: float = 1.0  # mm
     edge_chamfer: float = 2.0  # mm
-    
+
     # Smoothing
     smooth_sigma: float = 2.0  # Gaussian blur sigma
+
+    # Underside: "flat" = solid block from z=0 up to the thickness field
+    # (sits flat in the shoe / on the print bed); "shell" = constant-thickness
+    # shell draped under the top surface (legacy behaviour).
+    bottom_mode: str = "flat"
+    shell_thickness: float = 2.0  # mm, used by bottom_mode="shell"
 
 
 def load_heightmap(base_path: str) -> tuple:
@@ -205,15 +211,18 @@ def create_parametric_insole(
     return Z_composed
 
 
-def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Polygon, shell_thickness: float = 2.0) -> trimesh.Trimesh:
+def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Polygon,
+                      shell_thickness: float = 2.0, bottom_mode: str = "flat") -> trimesh.Trimesh:
     """
     Convert heightmap to watertight STL mesh following the insole outline.
-    
+
     Args:
         GX, GY, Z: Grid arrays (Z has NaN outside outline)
         outline: Shapely polygon for boundary
-        shell_thickness: Bottom shell thickness
-    
+        shell_thickness: Shell thickness (bottom_mode="shell" only)
+        bottom_mode: "flat" = solid from z=0 up to Z (flat underside);
+                     "shell" = underside drapes Z - shell_thickness
+
     Returns:
         Watertight trimesh
     """
@@ -337,7 +346,12 @@ def heightmap_to_mesh(GX: np.ndarray, GY: np.ndarray, Z: np.ndarray, outline: Po
 
     # Create bottom vertices
     bottom_vertices = top_vertices.copy()
-    bottom_vertices[:, 2] -= shell_thickness
+    if bottom_mode == "flat":
+        bottom_vertices[:, 2] = 0.0
+    elif bottom_mode == "shell":
+        bottom_vertices[:, 2] -= shell_thickness
+    else:
+        raise ValueError(f"Unknown bottom_mode: {bottom_mode!r} (use 'flat' or 'shell')")
 
     all_vertices = np.vstack([top_vertices, bottom_vertices])
     n_top = len(top_vertices)
@@ -385,6 +399,7 @@ def main() -> int:
     parser.add_argument("--arch_height", type=float, default=None, help="Override arch height (mm).")
     parser.add_argument("--base_thickness", type=float, default=None, help="Override base thickness (mm).")
     parser.add_argument("--heel_angle", type=float, default=None, help="Override heel varus angle (degrees).")
+    parser.add_argument("--bottom", type=str, default=None, choices=["flat", "shell"], help="Override underside mode (flat = solid, shell = draped).")
     
     args = parser.parse_args()
     
@@ -415,6 +430,8 @@ def main() -> int:
         params.base_thickness = args.base_thickness
     if args.heel_angle is not None:
         params.heel_varus_angle = args.heel_angle
+    if args.bottom is not None:
+        params.bottom_mode = args.bottom
     
     # Generate parametric thickness field
     Z_composed = create_parametric_insole(GX, GY, Z_base, params)
@@ -436,7 +453,9 @@ def main() -> int:
     
     # Generate mesh
     try:
-        mesh = heightmap_to_mesh(GX, GY, Z_composed, outline, shell_thickness=2.0)
+        mesh = heightmap_to_mesh(GX, GY, Z_composed, outline,
+                                 shell_thickness=params.shell_thickness,
+                                 bottom_mode=params.bottom_mode)
         
         # Save STL
         out_path = args.output or args.heightmap + "_parametric.stl"

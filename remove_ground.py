@@ -239,6 +239,21 @@ def main() -> int:
 		if kept.shape[0] == 0:
 			raise ValueError("Isolated point cloud is empty; adjust thresholds.")
 
+		# Attitude correction ("rectification d'assiette"): rotate the cloud so
+		# the detected table plane becomes horizontal. Without this, a tilted
+		# scan biases every height measurement (a 5 deg tilt adds ~20 mm of
+		# systematic drift along a 270 mm insole). Orient the plane normal
+		# toward the insole side first so the rotation puts the insole above
+		# the table (+Z).
+		plane_up = plane_abcd.copy()
+		signed = (kept @ plane_up[:3] + plane_up[3]) / (np.linalg.norm(plane_up[:3]) + 1e-12)
+		if np.median(signed) < 0:
+			plane_up = -plane_up
+		Rmat = rotation_to_align_plane_normal(plane_up)
+		tilt_deg = np.degrees(np.arccos(np.clip(plane_up[:3][2] / (np.linalg.norm(plane_up[:3]) + 1e-12), -1, 1)))
+		kept = kept @ Rmat.T
+		print(f"Attitude corrected: table plane tilt was {tilt_deg:.2f} deg")
+
 		# Robust Z alignment: a low percentile instead of the raw minimum, so
 		# a single deep artifact cannot shift the whole cloud.
 		z_min = np.percentile(kept[:, 2], 0.5)

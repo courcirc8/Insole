@@ -11,7 +11,7 @@ Open-source Python pipeline to convert 3D-scanned therapeutic insoles into param
 | 🔍 Compare | `isolate_insole.py` | Evaluate multiple isolation methods side-by-side |
 | 🦶 Filter | `filter_insole.py` | Shape-prior filtering (height + footprint + thin-shell priors) |
 | 🧹 Clean | `clean_artifacts.py` | Insole shape-prior (default) / statistical / radius / conservative |
-| 📐 Outline | `extract_outline.py` | 2D alpha-shape contour of insole footprint |
+| 📐 Outline | `extract_outline.py` | Footprint-mask contour (default) / concave hull / alpha shape |
 | 🗺️ Heightmap | `generate_heightmap.py` | kNN-interpolated Z grid within outline |
 | ⚙️ Parametric | `parametric_insole.py` | Arch support, heel posting, met pads → STL |
 | 🌐 Web viewer | `ply_viewer_web.py` | Interactive 3D viewer with Z-filtering, angle adjustment & export |
@@ -94,9 +94,9 @@ Raw scan (PLY/OBJ)
   │     ├─ thin-shell prior  (single-valued top surface z=f(x,y);
   │     │                     slope-aware rejection of ghost layers & spikes)
   │     └─ local polish      (light statistical pass)
-  ├─ 4. Outline extraction (alpha shape / fast concave hull)
+  ├─ 4. Outline extraction (footprint-mask contour; covers 100% of points)
   ├─ 5. Heightmap generation (kNN interpolation)
-  └─ 6. Parametric STL (thickness + arch + heel + met pad)
+  └─ 6. Parametric STL (watertight mesh + arch + heel + met pad)
 ```
 
 ### Insole-aware filtering (`filter_insole.py`)

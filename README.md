@@ -131,6 +131,7 @@ previous statistical filter removed 0.1% and kept every artifact.
 
 See `config_example.yaml` for parametric insole settings:
 - Base/min/max thickness
+- Underside mode: `flat` (solid, print-bed/shoe contact — default) or `shell` (draped constant-thickness shell)
 - Arch support (position, height, width)
 - Heel posting (varus angle, height)
 - Metatarsal pad

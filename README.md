@@ -2,6 +2,13 @@
 
 Open-source Python pipeline to convert 3D-scanned therapeutic insoles into parametrizable, printable STL files for flexible filaments (TPU / NinjaFlex).
 
+> [!WARNING]
+> **Not a medical device.** This is research/hobbyist software, not certified
+> by any regulatory authority. A badly shaped insole can cause pain, skin
+> breakdown, altered gait, or injury — the risk is serious for anyone with
+> diabetes or reduced foot sensation. Have any orthotic validated by a
+> qualified clinician before wearing it. See [DISCLAIMER.md](DISCLAIMER.md).
+
 ## Features
 
 | Stage | Script | Description |
@@ -30,7 +37,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. View a scan
+# 2. Provide a scan
+# Scan data is NOT included in this repository (see "Scan data" below).
+# Put your own scan at scans/scan1/scan1.ply, then:
 python view_scan.py -p scans/scan1/scan1.ply
 
 # 3. Run the pipeline
@@ -56,7 +65,7 @@ The enhanced web viewer (`ply_viewer_web.py`) provides:
 
 ```
 Insole/
-├── scans/                  # Raw scan data (PLY/OBJ/MTL)
+├── scans/                  # Raw scan data — NOT tracked in git, supply your own
 │   └── scan1/
 ├── outputs/                # Generated outputs (not tracked in git)
 │   ├── plane_corrected/    # Plane-aligned point clouds
@@ -75,9 +84,14 @@ Insole/
 ├── render_stl.py           # STL → PNG rendering
 ├── process_insole.py       # Pipeline orchestrator
 ├── process_insole_clean.py # Clean-first pipeline
+├── presets/                # Anatomical model presets (YAML)
 ├── config_example.yaml     # Example parametric config
 ├── requirements.txt        # Python dependencies
 ├── purpose.md              # Detailed design doc & algorithms
+├── DISCLAIMER.md           # Medical & safety disclaimer — read first
+├── SECURITY.md             # Threat model & vulnerability reporting
+├── CONTRIBUTING.md         # Contribution guidelines
+├── LICENSE                 # MIT
 └── README.md
 ```
 
@@ -152,6 +166,31 @@ On scan1 the fitted model reproduces the scan with a median residual of
 thin flat toe zone) — validate any orthotic with a clinician before
 prolonged use.
 
+## Scan data
+
+**No scan data ships with this repository.** Foot and insole scans are personal
+data — potentially health or biometric data depending on your jurisdiction — and
+they are large binary files that permanently bloat a git history. `scans/` and
+the common 3D formats are excluded in `.gitignore`.
+
+To run the pipeline, supply your own scan (any format Open3D reads: `.ply`,
+`.pcd`, `.obj`, `.stl`) and place it under `scans/`. The commands throughout
+this README assume `scans/scan1/scan1.ply`; adjust the paths to match your file.
+
+If you publish sample data, attach it to a GitHub Release or use Git LFS rather
+than committing it, and only with the informed consent of the person scanned.
+
+## Web viewer safety
+
+`ply_viewer_web.py` is a **local, single-user tool with no authentication**. It
+binds to `127.0.0.1` with `debug=False` by default — keep both defaults.
+
+Anyone who can reach the port can browse every point-cloud file under the
+working directory and write into `outputs/`. `--host 0.0.0.0` exposes that to
+your whole network, and `--debug` enables the Werkzeug debugger, which allows
+remote code execution. Never combine the two, and never expose the viewer to
+the internet. See [SECURITY.md](SECURITY.md).
+
 ## Configuration
 
 See `config_example.yaml` for parametric insole settings:
@@ -178,6 +217,13 @@ See `config_example.yaml` for parametric insole settings:
 - Layer height: 0.2–0.3 mm, slow outer walls, minimal retraction
 - Brim for adhesion; 220–240 °C nozzle, 40–60 °C bed
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short: never commit scan data or
+personal files, keep large assets out of git history, and keep the web viewer
+local-first.
+
 ## License
 
-MIT
+[MIT](LICENSE) — provided "as is", without warranty of any kind. See
+[DISCLAIMER.md](DISCLAIMER.md) for medical and safety limitations.

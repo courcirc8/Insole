@@ -32,6 +32,31 @@ scans/
 *.obj
 *.mtl
 *.pcd
+*.xyz
+*.xyzn
+*.xyzrgb
+*.pts
+*.off
+*.gltf
+*.glb
+*.fbx
+*.dae
 
-# Exception: keep config example
+# Archives (scan bundles have been committed by accident before)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Documents — personal paperwork must never land in this repo.
+# Project docs are re-allowed explicitly below.
+*.pdf
+
+# Generated heightmaps / previews
+*.npy
+
+# Exceptions
 !config_example.yaml
+!presets/*.yaml
